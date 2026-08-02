@@ -1,41 +1,32 @@
-import requests
-import json
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# عنوان الاتصال المحلي لـ Ollama داخل الكود سبيس
-OLLAMA_URL = "http://localhost:11434/api/generate"
+# اختيار نموذج خفيف ومحلي بالكامل
+MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
 
-# اختر النموذج الذي قمت بتحميله
-MODEL_NAME = "qwen2:7b"
+print("جاري تحميل أوزان النموذج مباشرة إلى رامات الجهاز (RAM)...")
 
-def ask_ai(prompt):
-    payload = {
-        "model": MODEL_NAME,
-        "prompt": prompt,
-        "stream": False # لجعل الإجابة تظهر دفعة واحدة وليست تدفقية لتسهيل العرض
-    }
+# تحميل التوكنايزر والنموذج
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    try:
-        print("جاري التفكير...")
-        response = requests.post(OLLAMA_URL, json=payload)
-        if response.status_code == 200:
-            return response.json().get("response", "لا توجد استجابة.")
-        else:
-            return f"خطأ في الاتصال: {response.status_code}"
-    except Exception as e:
-        return fحدث خطأ: {str(e)}"
+# تحميل النموذج واعتماد الـ CPU والـ RAM (أو الـ GPU إذا توفر)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    torch_dtype=torch.float32, # استخدام الدقة العادية للـ CPU
+    device_map="cpu"           # إجبار النموذج على استخدام رامات الجهاز ومعالجه مباشرة
+)
 
-if __name__ == "__main__":
-    print(f"--- نظام الذكاء الاصطناعي المحلي (مفعل عبر نموذج {MODEL_NAME}) ---")
-    print("اكتب 'خروج' أو 'exit' للإنهاء.\n")
+print("تم تحميل النموذج بنجاح في الذاكرة! يمكنك البدء بالدردشة:")
 
-    while True:
-        user_input = input("أنت: ")
-        if user_input.lower() in ["خروج", "exit"]:
-            print("إلى اللقاء!")
-            break
-
-        if not user_input.strip():
-            continue
-
-        ai_response = ask_ai(user_input)
-        print(f"\nالذكاء الاصطناعي:\n{ai_response}\n" + "-"*40)
+while True:
+    prompt = input("\nأنت: ")
+    if prompt.lower() == "exit":
+        break
+        
+    inputs = tokenizer(prompt, return_tensors="pt")
+    
+    # توليد الرد اعتماداً على العتاد المحلي
+    outputs = model.generate(**inputs, max_new_tokens=150)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    print(f"\nالنموذج المحلي (عبر رامات الجهاز):\n{response}")
