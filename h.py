@@ -1,67 +1,63 @@
 import warnings
+import telebot
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 warnings.filterwarnings("ignore")
 
-MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
+# ضع توكن بوت تيليجرام الخاص بك هنا
+TOKEN = "8884626544:AAF335PBPhxTY0wdmLinziGA6LPaR-ykKyY"
+bot = telebot.TeleBot(TOKEN)
 
-print("=" * 60)
-print("جاري تحميل أوزان النموذج مباشرة إلى رامات الجهاز (RAM)...")
-print("=" * 60)
+# تحميل النموذج غير المقيد في الذاكرة (RAM)
+MODEL_NAME = "cognitivecomputations/dolphin-2.8-mistral-7b-v0.2"
+
+print("جاري تحميل النموذج غير المقيد في رامات الجهاز، يرجى الانتظار...")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16
+)
+
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    torch_dtype=torch.float32,
+    quantization_config=quantization_config,
     device_map="cpu"
 )
 
-print("\n[تم بنجاح!] تم تحميل النموذج في الذاكرة الحية.")
-print("اكتب سؤالك وابدأ الدردشة (اكتب exit للإنهاء)\n" + "-" * 60)
+print("[تم بنجاح!] النموذج جاهز ويعمل الآن عبر بوت تيليجرام.")
 
-while True:
+# استقبال الرسائل عبر بوت تيليجرام
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_text = message.text
+    chat_id = message.chat.id
+    
+    bot.send_message(chat_id, "جاري المعالجة محلياً...")
+    
     try:
-        user_input = input("\nأنت: ").strip()
+        # تجهيز المدخلات بتنسيق النموذج
+        prompt = f"<|im_start|>user\n{user_text}<|im_end|>\n<|im_start|>assistant\n"
+        inputs = tokenizer(prompt, return_tensors="pt").to("cpu")
         
-        if not user_input:
-            continue
-            
-        if user_input.lower() in ["exit", "خروج"]:
-            print("إلى اللقاء!")
-            break
-            
-        print("النموذج المحلي يكتب الرد...")
-        
-        # استخدام تنسيق المحادثة الخاص بالنموذج لضمان فهمه واستجابته الصحيحة
-        messages = [{"role": "user", "content": user_input}]
-        text = tokenizer.apply_chat_template(
-            messages, 
-            tokenize=False, 
-            add_generation_prompt=True
-        )
-        
-        inputs = tokenizer([text], return_tensors="pt").to("cpu")
-        
+        # توليد الرد بدون قيود
         outputs = model.generate(
             inputs.input_ids,
-            max_new_tokens=200,
+            max_new_tokens=300,
             do_sample=True,
-            temperature=0.7,
+            temperature=0.8,
+            top_p=0.9,
             pad_token_id=tokenizer.eos_token_id
         )
         
-        # استخراج النص الجديد فقط (إزالة السؤال الأصلي لتجنب الفراغ أو التكرار)
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)
-        ]
-        response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
         
-        print(f"\nالنموذج المحلي:\n{response}")
-        print("-" * 60)
+        # إرسال النتيجة إلى تيليجرام
+        bot.send_message(chat_id, response if response else "عذراً، لم يتم إنشاء رد.")
         
-    except KeyboardInterrupt:
-        print("\nتم الإنهاء.")
-        break
     except Exception as e:
-        print(f"\nحدث خطأ: {str(e)}")
+        bot.send_message(chat_id, f"حدث خطأ أثناء التوليد: {str(e)}")
+
+if __name__ == "__main__":
+    bot.infinity_polling()
